@@ -491,63 +491,105 @@ def main():
         return
     
     # =========================================================================
-    # AUTOMATIC TRAINING - Runs once and caches results
+    # AUTOMATIC TRAINING - Train 3 different model configurations
     # =========================================================================
     
-    st.info("Training model automatically... This will be cached for subsequent interactions.")
+    st.info("Training 3 different RNN configurations automatically for comparison...")
     
-    with st.spinner("Training in progress..."):
-        # Automatically prepare data and train model (cached)
-        df_to_use = df.iloc[::10] if use_sample else df
-
-        # Safety caps for demo/sample mode to keep training short on CPU
-        if use_sample:
-            st.warning(" Sample mode detected  reducing sequence length and epochs for fast demo runs")
-            demo_sequence_length = min(sequence_length, 144)  # very short sequences for demo (1 day = 144 * 10min)
-            demo_epochs = min(epochs, 10)  # just 2-3 epochs for ultra-fast feedback
-            st.info(f" Demo settings: {demo_epochs} epochs, {demo_sequence_length} sequence length")
-        else:
-            demo_sequence_length = sequence_length
-            demo_epochs = epochs
-
+    # Always use sample data for fast demo
+    df_to_use = df.iloc[::10]
+    demo_sequence_length = 144  # 1 day of observations
+    demo_epochs = 10
+    
+    with st.spinner("Preparing data..."):
         prepared_data = prepare_data(df_to_use, sequence_length=demo_sequence_length, train_ratio=train_ratio)
+    
+    st.success(f"Data prepared: {len(prepared_data['X_train']):,} training sequences, {len(prepared_data['X_test']):,} test sequences")
+    
+    # Define 3 model configurations to compare
+    model_configs = [
+        {
+            'name': 'Simple LSTM',
+            'hidden_size': 32,
+            'num_layers': 1,
+            'dropout': 0.0,
+            'color': '#1f77b4',
+            'description': 'Basic single-layer LSTM'
+        },
+        {
+            'name': 'Medium LSTM',
+            'hidden_size': 64,
+            'num_layers': 2,
+            'dropout': 0.2,
+            'color': '#ff7f0e',
+            'description': '2-layer LSTM with dropout'
+        },
+        {
+            'name': 'Deep LSTM',
+            'hidden_size': 128,
+            'num_layers': 3,
+            'dropout': 0.3,
+            'color': '#2ca02c',
+            'description': '3-layer deep LSTM network'
+        }
+    ]
+    
+    # Train all 3 models
+    all_results = []
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    for idx, config in enumerate(model_configs):
+        status_text.text(f"Training {config['name']} ({idx+1}/3)...")
         
-        # Train model (this is cached, so it only runs once per parameter combination)
+        # Train model (cached for speed)
         training_results = train_model_cached(
             prepared_data['X_train'],
             prepared_data['y_train'],
             prepared_data['X_test'],
             prepared_data['y_test'],
-            hidden_size=hidden_size,
-            num_layers=num_layers,
-            dropout=dropout,
+            hidden_size=config['hidden_size'],
+            num_layers=config['num_layers'],
+            dropout=config['dropout'],
             epochs=demo_epochs,
             learning_rate=learning_rate,
             batch_size=batch_size,
             device_str=str(device)
         )
         
-        # Reconstruct model from cached state
+        # Reconstruct model
         model = TemperatureRNN(
             input_size=1,
-            hidden_size=hidden_size,
-            num_layers=num_layers,
+            hidden_size=config['hidden_size'],
+            num_layers=config['num_layers'],
             output_size=1,
-            dropout=dropout
+            dropout=config['dropout']
         )
         model.load_state_dict(training_results['model_state_dict'])
         model.to(device)
         
-        # Evaluate model
-        results = evaluate_model(
+        # Evaluate
+        eval_results = evaluate_model(
             model=model,
             X_test=prepared_data['X_test'],
             y_test=prepared_data['y_test'],
             scaler=prepared_data['scaler'],
             device=device
         )
+        
+        all_results.append({
+            'config': config,
+            'training': training_results,
+            'evaluation': eval_results,
+            'model': model
+        })
+        
+        progress_bar.progress((idx + 1) / len(model_configs))
     
-    st.success(f" Training complete! Total time: {training_results['training_time']:.2f} seconds")
+    progress_bar.empty()
+    status_text.empty()
+    
+    st.success(f"All 3 models trained successfully! Total time: {sum(r['training']['training_time'] for r in all_results):.2f} seconds")
     
     # Main content tabs
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -678,111 +720,109 @@ def main():
         """)
     
     # =========================================================================
-    # TAB 3: MODEL TRAINING RESULTS
+    # TAB 3: MODEL COMPARISON
     # =========================================================================
     with tab3:
-        st.markdown('<h2 class="sub-header">Model Training Results</h2>', unsafe_allow_html=True)
+        st.markdown('<h2 class="sub-header">Model Comparison: 3 LSTM Configurations</h2>', unsafe_allow_html=True)
         
-        st.markdown("### Model Architecture")
+        st.markdown("""
+        Compare three different LSTM architectures trained on the same data:
+        - **Simple LSTM**: Single layer, no dropout - fastest but may underfit
+        - **Medium LSTM**: 2 layers with dropout - balanced performance
+        - **Deep LSTM**: 3 layers with more dropout - captures complex patterns
+        """)
         
-        col1, col2 = st.columns([1, 1])
+        # Performance comparison table
+        st.markdown("### Performance Metrics Comparison")
         
-        with col1:
-            st.markdown(f"""
-            **RNN Configuration:**
-            - **Type**: LSTM (Long Short-Term Memory)
-            - **Input Size**: 1 (temperature only)
-            - **Hidden Units**: {hidden_size}
-            - **Number of Layers**: {num_layers}
-            - **Dropout**: {dropout}
-            - **Output Size**: 1 (next temperature)
-            
-            **Training Configuration:**
-            - **Learning Rate**: {learning_rate}
-            - **Epochs**: {epochs}
-            - **Batch Size**: {batch_size}
-            - **Optimizer**: Adam
-            - **Loss Function**: MSE (Mean Squared Error)
-            """)
+        comparison_data = []
+        for result in all_results:
+            comparison_data.append({
+                'Model': result['config']['name'],
+                'Hidden Size': result['config']['hidden_size'],
+                'Layers': result['config']['num_layers'],
+                'Parameters': f"{result['training']['num_parameters']:,}",
+                'Training Time (s)': f"{result['training']['training_time']:.2f}",
+                'RMSE (C)': f"{result['evaluation']['rmse']:.4f}",
+                'MAE (C)': f"{result['evaluation']['mae']:.4f}",
+                'R2 Score': f"{result['evaluation']['r2']:.4f}"
+            })
         
-        with col2:
-            st.markdown("""
-            **Why LSTM?**
-            
-            LSTM networks are ideal for time series forecasting because they:
-            - Remember long-term patterns in sequential data
-            - Avoid vanishing gradient problems
-            - Learn complex temporal dependencies
-            - Handle variable-length sequences effectively
-            
-            **Model Improvements:**
-            - Multiple LSTM layers for deeper learning
-            - Dropout for regularization (prevents overfitting)
-            - Batch normalization for stable training
-            - Adam optimizer for adaptive learning rates
-            """)
+        comparison_df = pd.DataFrame(comparison_data)
+        st.dataframe(comparison_df, width='stretch', hide_index=True)
+        
+        # Highlight best model
+        best_idx = min(range(len(all_results)), key=lambda i: all_results[i]['evaluation']['rmse'])
+        st.success(f"Best Model: **{all_results[best_idx]['config']['name']}** (Lowest RMSE: {all_results[best_idx]['evaluation']['rmse']:.4f}C)")
         
         st.markdown("---")
         
-        # Display training metrics
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Model Parameters", f"{training_results['num_parameters']:,}")
-        with col2:
-            st.metric("Training Time", f"{training_results['training_time']:.2f}s")
-        with col3:
-            st.metric("Training Sequences", f"{len(prepared_data['X_train']):,}")
-        with col4:
-            st.metric("Test Sequences", f"{len(prepared_data['X_test']):,}")
-        
-        st.markdown("### Training Loss Over Epochs")
+        # Training loss comparison
+        st.markdown("### Training Loss Comparison")
         
         fig_loss = go.Figure()
         
-        fig_loss.add_trace(go.Scatter(
-            x=list(range(1, len(training_results['train_losses']) + 1)),
-            y=training_results['train_losses'],
-            mode='lines',
-            name='Training Loss',
-            line=dict(color='#1f77b4', width=2)
-        ))
-        
-        fig_loss.add_trace(go.Scatter(
-            x=list(range(1, len(training_results['val_losses']) + 1)),
-            y=training_results['val_losses'],
-            mode='lines',
-            name='Validation Loss',
-            line=dict(color='#ff7f0e', width=2)
-        ))
+        for result in all_results:
+            config = result['config']
+            training = result['training']
+            
+            # Training loss
+            fig_loss.add_trace(go.Scatter(
+                x=list(range(1, len(training['train_losses']) + 1)),
+                y=training['train_losses'],
+                mode='lines',
+                name=f"{config['name']} - Train",
+                line=dict(color=config['color'], width=2)
+            ))
+            
+            # Validation loss (dashed)
+            fig_loss.add_trace(go.Scatter(
+                x=list(range(1, len(training['val_losses']) + 1)),
+                y=training['val_losses'],
+                mode='lines',
+                name=f"{config['name']} - Val",
+                line=dict(color=config['color'], width=2, dash='dash')
+            ))
         
         fig_loss.update_layout(
             xaxis_title="Epoch",
             yaxis_title="Loss (MSE)",
             hovermode='x unified',
-            height=400,
-            legend=dict(x=0.7, y=0.99)
+            height=500,
+            legend=dict(x=0.02, y=0.98, bgcolor='rgba(255,255,255,0.8)')
         )
         
         st.plotly_chart(fig_loss, width='stretch')
         
-        # Show final losses
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Final Training Loss", f"{training_results['train_losses'][-1]:.6f}")
-        with col2:
-            st.metric("Final Validation Loss", f"{training_results['val_losses'][-1]:.6f}")
-        with col3:
-            improvement = ((training_results['train_losses'][0] - training_results['train_losses'][-1]) / training_results['train_losses'][0]) * 100
-            st.metric("Improvement", f"{improvement:.1f}%")
+        st.markdown("""
+        **Observations:**
+        - Solid lines show training loss (how well each model learns from training data)
+        - Dashed lines show validation loss (how well each model generalizes to unseen data)
+        - Lower loss values indicate better performance
+        - Gap between train/val suggests overfitting (model memorizes training data)
+        """)
     
     # =========================================================================
-    # TAB 4: RESULTS & EVALUATION
+    # TAB 4: DETAILED PREDICTIONS
     # =========================================================================
     with tab4:
-        st.markdown('<h2 class="sub-header">Model Evaluation & Predictions</h2>', unsafe_allow_html=True)
+        st.markdown('<h2 class="sub-header">Prediction Visualizations - All Models</h2>', unsafe_allow_html=True)
         
-        # Display metrics
-        st.markdown("### Performance Metrics")
+        # Model selector
+        selected_model = st.selectbox(
+            "Select Model to View:",
+            options=[r['config']['name'] for r in all_results],
+            index=best_idx
+        )
+        
+        # Get selected model results
+        selected_result = next(r for r in all_results if r['config']['name'] == selected_model)
+        results = selected_result['evaluation']
+        config = selected_result['config']
+        training = selected_result['training']
+        
+        # Display metrics for selected model
+        st.markdown(f"### {selected_model} Performance")
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
@@ -790,17 +830,17 @@ def main():
         with col2:
             st.metric("MAE", f"{results['mae']:.4f}C", help="Mean Absolute Error")
         with col3:
-            st.metric("R Score", f"{results['r2']:.4f}", help="Coefficient of Determination")
+            st.metric("R2 Score", f"{results['r2']:.4f}", help="Coefficient of Determination")
         with col4:
-            st.metric("Training Time", f"{training_results['training_time']:.2f}s")
+            st.metric("Training Time", f"{training['training_time']:.2f}s")
         
         # Interpretation
         if results['r2'] > 0.9:
-            st.success(" Excellent model performance! R > 0.9 indicates very strong predictive power.")
+            st.success("Excellent model performance! R2 > 0.9 indicates very strong predictive power.")
         elif results['r2'] > 0.7:
-            st.info(" Good model performance. R > 0.7 shows solid predictions.")
+            st.info("Good model performance. R2 > 0.7 shows solid predictions.")
         else:
-            st.warning(" Model could be improved. Consider adjusting hyperparameters.")
+            st.warning("Model could be improved. Consider adjusting hyperparameters.")
         
         st.markdown("---")
         
@@ -824,8 +864,8 @@ def main():
             x=list(sample_indices),
             y=results['predictions'].flatten()[sample_indices],
             mode='lines',
-            name='Predicted Temperature',
-            line=dict(color='#d62728', width=2, dash='dash')
+            name=f'{selected_model} Prediction',
+            line=dict(color=config['color'], width=2, dash='dash')
         ))
         
         fig_pred.update_layout(
