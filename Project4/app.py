@@ -395,15 +395,19 @@ def main():
     
     st.sidebar.subheader("Data Parameters")
     
+    st.sidebar.warning("⚠️ **Recommended:** Keep sample mode ON for fast cloud deployment")
+    
     # Add data sampling option for faster training
     use_sample = st.sidebar.checkbox(
         "🚀 Use Sample Data (Faster Training)",
         value=True,  # Default to True for faster demo
-        help="Use only 10% of data for quick testing. Uncheck for full dataset."
+        help="Use only 10% of data for quick testing. Uncheck for full dataset (may be very slow on Streamlit Cloud)."
     )
     
     if use_sample:
-        st.sidebar.info("⚡ Using 10% sample - Training ~30-60 seconds!")
+        st.sidebar.success("✅ Sample mode ON - Training finishes in ~10-30 seconds!")
+    else:
+        st.sidebar.error("⚠️ Full dataset mode - May take 10-30+ minutes on cloud!")
     
     sequence_length = st.sidebar.slider(
         "Sequence Length (observations)",
@@ -472,10 +476,18 @@ def main():
     
     # Load data
     data_path = os.path.join(os.path.dirname(__file__), 'jena_climate_2009_2016.csv')
+    
+    # Check if file exists before trying to load
+    if not os.path.exists(data_path):
+        st.error(f"❌ Dataset file not found at: {data_path}")
+        st.error("Please ensure 'jena_climate_2009_2016.csv' is in the Project4 directory and committed to git.")
+        st.stop()
+        return
+    
     df = load_data(data_path)
     
     if df is None:
-        st.error("Failed to load dataset. Please ensure 'jena_climate_2009_2016.csv' is in the same directory as this app.")
+        st.error("Failed to load dataset. The CSV file may be corrupted.")
         return
     
     # =========================================================================
@@ -491,8 +503,9 @@ def main():
         # Safety caps for demo/sample mode to keep training short on CPU
         if use_sample:
             st.warning("⚠️ Sample mode detected — reducing sequence length and epochs for fast demo runs")
-            demo_sequence_length = min(sequence_length, 240)  # shorten from default (e.g. 720 -> 240)
-            demo_epochs = min(epochs, 5)  # run only a few epochs for quick feedback
+            demo_sequence_length = min(sequence_length, 144)  # very short sequences for demo (1 day = 144 * 10min)
+            demo_epochs = min(epochs, 10)  # just 2-3 epochs for ultra-fast feedback
+            st.info(f"📊 Demo settings: {demo_epochs} epochs, {demo_sequence_length} sequence length")
         else:
             demo_sequence_length = sequence_length
             demo_epochs = epochs
