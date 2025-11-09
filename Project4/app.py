@@ -175,9 +175,9 @@ def prepare_data(df, temperature_col='T (degC)', sequence_length=720, train_rati
 # TRAINING FUNCTION
 # =============================================================================
 
-def train_model(model, X_train, y_train, X_val, y_val, epochs, learning_rate, batch_size, device):
+def train_model_with_ui(model, X_train, y_train, X_val, y_val, epochs, learning_rate, batch_size, device):
     """
-    Train the RNN model.
+    Train the RNN model with UI updates (for interactive mode).
     
     Returns:
         Dictionary with training history
@@ -260,6 +260,78 @@ def train_model(model, X_train, y_train, X_val, y_val, epochs, learning_rate, ba
         'val_losses': val_losses
     }
 
+@st.cache_data
+def train_model_cached(_X_train, _y_train, _X_val, _y_val, hidden_size, num_layers, dropout, 
+                       epochs, learning_rate, batch_size, device_str):
+    """
+    Cached training function that runs automatically once with given parameters.
+    Returns model state dict and training history.
+    """
+    import time
+    
+    # Initialize model
+    model = TemperatureRNN(
+        input_size=1,
+        hidden_size=hidden_size,
+        num_layers=num_layers,
+        output_size=1,
+        dropout=dropout
+    )
+    
+    device = torch.device(device_str)
+    criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
+    
+    model.to(device)
+    
+    train_losses = []
+    val_losses = []
+    
+    start_time = time.time()
+    
+    # Training loop (no UI updates for cached version)
+    for epoch in range(epochs):
+        model.train()
+        epoch_train_loss = 0
+        num_batches = 0
+        
+        # Mini-batch training
+        for i in range(0, len(_X_train), batch_size):
+            batch_X = _X_train[i:i + batch_size].to(device)
+            batch_y = _y_train[i:i + batch_size].to(device)
+            
+            # Forward pass
+            outputs = model(batch_X)
+            loss = criterion(outputs, batch_y)
+            
+            # Backward pass and optimization
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            
+            epoch_train_loss += loss.item()
+            num_batches += 1
+        
+        avg_train_loss = epoch_train_loss / num_batches
+        train_losses.append(avg_train_loss)
+        
+        # Validation
+        model.eval()
+        with torch.no_grad():
+            val_outputs = model(_X_val.to(device))
+            val_loss = criterion(val_outputs, _y_val.to(device))
+            val_losses.append(val_loss.item())
+    
+    training_time = time.time() - start_time
+    
+    return {
+        'model_state_dict': model.state_dict(),
+        'train_losses': train_losses,
+        'val_losses': val_losses,
+        'training_time': training_time,
+        'num_parameters': sum(p.numel() for p in model.parameters())
+    }
+
 # =============================================================================
 # EVALUATION FUNCTION
 # =============================================================================
@@ -309,22 +381,29 @@ def main():
     
     **Dataset:** Weather measurements from the Max Planck Institute for Biogeochemistry, 
     recorded every 10 minutes with 14 different features.
+    
+    ---
+    
+    **🚀 Auto-Training Mode:** This app automatically trains the model when loaded and displays the results. 
+    Adjust the parameters in the sidebar to see different configurations (requires page refresh).
     """)
     
     # Sidebar - Model Configuration
     st.sidebar.header("⚙️ Model Configuration")
+    
+    st.sidebar.markdown("**💡 Tip:** Change parameters and refresh to retrain!")
     
     st.sidebar.subheader("Data Parameters")
     
     # Add data sampling option for faster training
     use_sample = st.sidebar.checkbox(
         "🚀 Use Sample Data (Faster Training)",
-        value=False,
+        value=True,  # Default to True for faster demo
         help="Use only 10% of data for quick testing. Uncheck for full dataset."
     )
     
     if use_sample:
-        st.sidebar.warning("⚡ Using 10% sample - Training will be ~10x faster!")
+        st.sidebar.info("⚡ Using 10% sample - Training ~30-60 seconds!")
     
     sequence_length = st.sidebar.slider(
         "Sequence Length (observations)",
@@ -391,6 +470,72 @@ def main():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     st.sidebar.info(f"**Device:** {device}")
     
+    # Load data
+    data_path = os.path.join(os.path.dirname(__file__), 'jena_climate_2009_2016.csv')
+    df = load_data(data_path)
+    
+    if df is None:
+        st.error("Failed to load dataset. Please ensure 'jena_climate_2009_2016.csv' is in the same directory as this app.")
+        return
+    
+    # =========================================================================
+    # AUTOMATIC TRAINING - Runs once and caches results
+    # =========================================================================
+    
+    st.info("� Training model automatically... This will be cached for subsequent interactions.")
+    
+    with st.spinner("Training in progress..."):
+        # Automatically prepare data and train model (cached)
+        df_to_use = df.iloc[::10] if use_sample else df
+
+        # Safety caps for demo/sample mode to keep training short on CPU
+        if use_sample:
+            st.warning("⚠️ Sample mode detected — reducing sequence length and epochs for fast demo runs")
+            demo_sequence_length = min(sequence_length, 240)  # shorten from default (e.g. 720 -> 240)
+            demo_epochs = min(epochs, 5)  # run only a few epochs for quick feedback
+        else:
+            demo_sequence_length = sequence_length
+            demo_epochs = epochs
+
+        prepared_data = prepare_data(df_to_use, sequence_length=demo_sequence_length, train_ratio=train_ratio)
+        
+        # Train model (this is cached, so it only runs once per parameter combination)
+        training_results = train_model_cached(
+            prepared_data['X_train'],
+            prepared_data['y_train'],
+            prepared_data['X_test'],
+            prepared_data['y_test'],
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            dropout=dropout,
+            epochs=demo_epochs,
+            learning_rate=learning_rate,
+            batch_size=batch_size,
+            device_str=str(device)
+        )
+        
+        # Reconstruct model from cached state
+        model = TemperatureRNN(
+            input_size=1,
+            hidden_size=hidden_size,
+            num_layers=num_layers,
+            output_size=1,
+            dropout=dropout
+        )
+        model.load_state_dict(training_results['model_state_dict'])
+        model.to(device)
+        
+        # Evaluate model
+        results = evaluate_model(
+            model=model,
+            X_test=prepared_data['X_test'],
+            y_test=prepared_data['y_test'],
+            scaler=prepared_data['scaler'],
+            device=device
+        )
+    
+    st.success(f"✅ Training complete! Total time: {training_results['training_time']:.2f} seconds")
+    
     # Main content tabs
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
         "📊 Data Overview",
@@ -399,14 +544,6 @@ def main():
         "📈 Results & Evaluation",
         "📚 Documentation"
     ])
-    
-    # Load data
-    data_path = os.path.join(os.path.dirname(__file__), 'jena_climate_2009_2016.csv')
-    df = load_data(data_path)
-    
-    if df is None:
-        st.error("Failed to load dataset. Please ensure 'jena_climate_2009_2016.csv' is in the same directory as this app.")
-        return
     
     # =========================================================================
     # TAB 1: DATA OVERVIEW
@@ -483,24 +620,15 @@ def main():
         st.markdown('<h2 class="sub-header">Data Preprocessing Pipeline</h2>', unsafe_allow_html=True)
         
         st.markdown("""
-        ### Preprocessing Steps:
+        ### Preprocessing Steps Applied:
         
-        1. **Data Loading**: Load the CSV file with pandas
-        2. **Feature Selection**: Focus on temperature column (`T (degC)`)
-        3. **Normalization**: Apply Min-Max scaling to range [0, 1]
-        4. **Sequence Creation**: Use sliding window approach
-        5. **Train/Test Split**: Latest data reserved for testing
+        1. **Data Loading**: Loaded CSV file with pandas
+        2. **Data Sampling**: """ + ("Used 10% sample (every 10th row)" if use_sample else "Used full dataset") + """
+        3. **Feature Selection**: Focused on temperature column (`T (degC)`)
+        4. **Normalization**: Applied Min-Max scaling to range [0, 1]
+        5. **Sequence Creation**: Used sliding window approach (""" + str(sequence_length) + """ steps)
+        6. **Train/Test Split**: """ + f"{int(train_ratio*100)}% training, {int((1-train_ratio)*100)}% testing" + """
         """)
-        
-        with st.spinner("Preparing data..."):
-            # Sample data if option is enabled
-            df_to_use = df.iloc[::10] if use_sample else df
-            if use_sample:
-                st.info("📊 Using 10% sample of data (every 10th row) for faster training")
-            
-            prepared_data = prepare_data(df_to_use, sequence_length=sequence_length, train_ratio=train_ratio)
-        
-        st.success("✅ Data preprocessing complete!")
         
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -535,15 +663,12 @@ def main():
         - **Output**: Next temperature value (single prediction)
         - **Shape**: `(batch_size, {sequence_length}, 1)`
         """)
-        
-        # Store prepared data in session state
-        st.session_state['prepared_data'] = prepared_data
     
     # =========================================================================
-    # TAB 3: MODEL TRAINING
+    # TAB 3: MODEL TRAINING RESULTS
     # =========================================================================
     with tab3:
-        st.markdown('<h2 class="sub-header">Model Training</h2>', unsafe_allow_html=True)
+        st.markdown('<h2 class="sub-header">Model Training Results</h2>', unsafe_allow_html=True)
         
         st.markdown("### Model Architecture")
         
@@ -586,90 +711,56 @@ def main():
         
         st.markdown("---")
         
-        # Training button
-        if st.button("🚀 Start Training", type="primary", width='stretch'):
-            if 'prepared_data' not in st.session_state:
-                st.error("Please run data preprocessing first (Tab 2)")
-            else:
-                prepared_data = st.session_state['prepared_data']
-                
-                st.markdown("### Training Progress")
-                
-                # Initialize model
-                model = TemperatureRNN(
-                    input_size=1,
-                    hidden_size=hidden_size,
-                    num_layers=num_layers,
-                    output_size=1,
-                    dropout=dropout
-                )
-                
-                st.write(f"**Model Parameters:** {sum(p.numel() for p in model.parameters()):,}")
-                
-                # Train model
-                training_start = datetime.now()
-                
-                history = train_model(
-                    model=model,
-                    X_train=prepared_data['X_train'],
-                    y_train=prepared_data['y_train'],
-                    X_val=prepared_data['X_test'],
-                    y_val=prepared_data['y_test'],
-                    epochs=epochs,
-                    learning_rate=learning_rate,
-                    batch_size=batch_size,
-                    device=device
-                )
-                
-                training_time = (datetime.now() - training_start).total_seconds()
-                
-                st.success(f"✅ Training completed in {training_time:.2f} seconds!")
-                
-                # Plot training loss
-                st.markdown("### Training Loss Over Epochs")
-                
-                fig_loss = go.Figure()
-                
-                fig_loss.add_trace(go.Scatter(
-                    x=list(range(1, epochs + 1)),
-                    y=history['train_losses'],
-                    mode='lines',
-                    name='Training Loss',
-                    line=dict(color='#1f77b4', width=2)
-                ))
-                
-                fig_loss.add_trace(go.Scatter(
-                    x=list(range(1, epochs + 1)),
-                    y=history['val_losses'],
-                    mode='lines',
-                    name='Validation Loss',
-                    line=dict(color='#ff7f0e', width=2)
-                ))
-                
-                fig_loss.update_layout(
-                    xaxis_title="Epoch",
-                    yaxis_title="Loss (MSE)",
-                    hovermode='x unified',
-                    height=400,
-                    legend=dict(x=0.7, y=0.99)
-                )
-                
-                st.plotly_chart(fig_loss, width='stretch')
-                
-                # Show final losses
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Final Training Loss", f"{history['train_losses'][-1]:.6f}")
-                with col2:
-                    st.metric("Final Validation Loss", f"{history['val_losses'][-1]:.6f}")
-                with col3:
-                    improvement = ((history['train_losses'][0] - history['train_losses'][-1]) / history['train_losses'][0]) * 100
-                    st.metric("Improvement", f"{improvement:.1f}%")
-                
-                # Store model in session state
-                st.session_state['trained_model'] = model
-                st.session_state['history'] = history
-                st.session_state['training_time'] = training_time
+        # Display training metrics
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Model Parameters", f"{training_results['num_parameters']:,}")
+        with col2:
+            st.metric("Training Time", f"{training_results['training_time']:.2f}s")
+        with col3:
+            st.metric("Training Sequences", f"{len(prepared_data['X_train']):,}")
+        with col4:
+            st.metric("Test Sequences", f"{len(prepared_data['X_test']):,}")
+        
+        st.markdown("### Training Loss Over Epochs")
+        
+        fig_loss = go.Figure()
+        
+        fig_loss.add_trace(go.Scatter(
+            x=list(range(1, len(training_results['train_losses']) + 1)),
+            y=training_results['train_losses'],
+            mode='lines',
+            name='Training Loss',
+            line=dict(color='#1f77b4', width=2)
+        ))
+        
+        fig_loss.add_trace(go.Scatter(
+            x=list(range(1, len(training_results['val_losses']) + 1)),
+            y=training_results['val_losses'],
+            mode='lines',
+            name='Validation Loss',
+            line=dict(color='#ff7f0e', width=2)
+        ))
+        
+        fig_loss.update_layout(
+            xaxis_title="Epoch",
+            yaxis_title="Loss (MSE)",
+            hovermode='x unified',
+            height=400,
+            legend=dict(x=0.7, y=0.99)
+        )
+        
+        st.plotly_chart(fig_loss, width='stretch')
+        
+        # Show final losses
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Final Training Loss", f"{training_results['train_losses'][-1]:.6f}")
+        with col2:
+            st.metric("Final Validation Loss", f"{training_results['val_losses'][-1]:.6f}")
+        with col3:
+            improvement = ((training_results['train_losses'][0] - training_results['train_losses'][-1]) / training_results['train_losses'][0]) * 100
+            st.metric("Improvement", f"{improvement:.1f}%")
     
     # =========================================================================
     # TAB 4: RESULTS & EVALUATION
@@ -677,142 +768,127 @@ def main():
     with tab4:
         st.markdown('<h2 class="sub-header">Model Evaluation & Predictions</h2>', unsafe_allow_html=True)
         
-        if 'trained_model' not in st.session_state:
-            st.warning("⚠️ Please train the model first (Tab 3)")
+        # Display metrics
+        st.markdown("### Performance Metrics")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("RMSE", f"{results['rmse']:.4f}°C", help="Root Mean Squared Error")
+        with col2:
+            st.metric("MAE", f"{results['mae']:.4f}°C", help="Mean Absolute Error")
+        with col3:
+            st.metric("R² Score", f"{results['r2']:.4f}", help="Coefficient of Determination")
+        with col4:
+            st.metric("Training Time", f"{training_results['training_time']:.2f}s")
+        
+        # Interpretation
+        if results['r2'] > 0.9:
+            st.success("🎉 Excellent model performance! R² > 0.9 indicates very strong predictive power.")
+        elif results['r2'] > 0.7:
+            st.info("✅ Good model performance. R² > 0.7 shows solid predictions.")
         else:
-            model = st.session_state['trained_model']
-            prepared_data = st.session_state['prepared_data']
-            
-            with st.spinner("Evaluating model..."):
-                results = evaluate_model(
-                    model=model,
-                    X_test=prepared_data['X_test'],
-                    y_test=prepared_data['y_test'],
-                    scaler=prepared_data['scaler'],
-                    device=device
-                )
-            
-            # Display metrics
-            st.markdown("### Performance Metrics")
-            
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("RMSE", f"{results['rmse']:.4f}°C", help="Root Mean Squared Error")
-            with col2:
-                st.metric("MAE", f"{results['mae']:.4f}°C", help="Mean Absolute Error")
-            with col3:
-                st.metric("R² Score", f"{results['r2']:.4f}", help="Coefficient of Determination")
-            with col4:
-                st.metric("Training Time", f"{st.session_state['training_time']:.2f}s")
-            
-            # Interpretation
-            if results['r2'] > 0.9:
-                st.success("🎉 Excellent model performance! R² > 0.9 indicates very strong predictive power.")
-            elif results['r2'] > 0.7:
-                st.info("✅ Good model performance. R² > 0.7 shows solid predictions.")
-            else:
-                st.warning("⚠️ Model could be improved. Consider adjusting hyperparameters.")
-            
-            st.markdown("---")
-            
-            # Predictions visualization
-            st.markdown("### Actual vs. Predicted Temperatures")
-            
-            # Sample for visualization (show every 10th point for clarity)
-            sample_indices = range(0, len(results['actual']), 10)
-            
-            fig_pred = go.Figure()
-            
-            fig_pred.add_trace(go.Scatter(
-                x=list(sample_indices),
-                y=results['actual'].flatten()[sample_indices],
-                mode='lines',
-                name='Actual Temperature',
-                line=dict(color='#2ca02c', width=2)
-            ))
-            
-            fig_pred.add_trace(go.Scatter(
-                x=list(sample_indices),
-                y=results['predictions'].flatten()[sample_indices],
-                mode='lines',
-                name='Predicted Temperature',
-                line=dict(color='#d62728', width=2, dash='dash')
-            ))
-            
-            fig_pred.update_layout(
-                xaxis_title="Test Sample Index",
-                yaxis_title="Temperature (°C)",
-                hovermode='x unified',
-                height=500,
-                legend=dict(x=0.7, y=0.99)
+            st.warning("⚠️ Model could be improved. Consider adjusting hyperparameters.")
+        
+        st.markdown("---")
+        
+        # Predictions visualization
+        st.markdown("### Actual vs. Predicted Temperatures")
+        
+        # Sample for visualization (show every 10th point for clarity)
+        sample_indices = range(0, len(results['actual']), 10)
+        
+        fig_pred = go.Figure()
+        
+        fig_pred.add_trace(go.Scatter(
+            x=list(sample_indices),
+            y=results['actual'].flatten()[sample_indices],
+            mode='lines',
+            name='Actual Temperature',
+            line=dict(color='#2ca02c', width=2)
+        ))
+        
+        fig_pred.add_trace(go.Scatter(
+            x=list(sample_indices),
+            y=results['predictions'].flatten()[sample_indices],
+            mode='lines',
+            name='Predicted Temperature',
+            line=dict(color='#d62728', width=2, dash='dash')
+        ))
+        
+        fig_pred.update_layout(
+            xaxis_title="Test Sample Index",
+            yaxis_title="Temperature (°C)",
+            hovermode='x unified',
+            height=500,
+            legend=dict(x=0.7, y=0.99)
+        )
+        
+        st.plotly_chart(fig_pred, width='stretch')
+        
+        # Error distribution
+        st.markdown("### Prediction Error Analysis")
+        
+        errors = results['actual'].flatten() - results['predictions'].flatten()
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            fig_error_hist = px.histogram(
+                x=errors,
+                nbins=50,
+                title="Error Distribution",
+                labels={'x': 'Prediction Error (°C)'},
+                color_discrete_sequence=['#9467bd']
             )
-            
-            st.plotly_chart(fig_pred, width='stretch')
-            
-            # Error distribution
-            st.markdown("### Prediction Error Analysis")
-            
-            errors = results['actual'].flatten() - results['predictions'].flatten()
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                fig_error_hist = px.histogram(
-                    x=errors,
-                    nbins=50,
-                    title="Error Distribution",
-                    labels={'x': 'Prediction Error (°C)'},
-                    color_discrete_sequence=['#9467bd']
-                )
-                fig_error_hist.add_vline(x=0, line_dash="dash", line_color="red")
-                st.plotly_chart(fig_error_hist, width='stretch')
-            
-            with col2:
-                fig_scatter = px.scatter(
-                    x=results['actual'].flatten(),
-                    y=results['predictions'].flatten(),
-                    title="Actual vs Predicted",
-                    labels={'x': 'Actual Temperature (°C)', 'y': 'Predicted Temperature (°C)'},
-                    color_discrete_sequence=['#1f77b4'],
-                    opacity=0.5
-                )
-                # Add perfect prediction line
-                min_temp = min(results['actual'].min(), results['predictions'].min())
-                max_temp = max(results['actual'].max(), results['predictions'].max())
-                fig_scatter.add_trace(go.Scatter(
-                    x=[min_temp, max_temp],
-                    y=[min_temp, max_temp],
-                    mode='lines',
-                    name='Perfect Prediction',
-                    line=dict(color='red', dash='dash')
-                ))
-                st.plotly_chart(fig_scatter, width='stretch')
-            
-            # Detailed statistics
-            st.markdown("### Error Statistics")
-            error_stats = {
-                'Metric': ['Mean Error', 'Std Error', 'Min Error', 'Max Error', '25th Percentile', '75th Percentile'],
-                'Value (°C)': [
-                    f"{np.mean(errors):.4f}",
-                    f"{np.std(errors):.4f}",
-                    f"{np.min(errors):.4f}",
-                    f"{np.max(errors):.4f}",
-                    f"{np.percentile(errors, 25):.4f}",
-                    f"{np.percentile(errors, 75):.4f}"
-                ]
-            }
-            st.dataframe(pd.DataFrame(error_stats), width='stretch', hide_index=True)
-            
-            # Sample predictions table
-            st.markdown("### Sample Predictions")
-            sample_size = 20
-            sample_results = pd.DataFrame({
-                'Index': range(sample_size),
-                'Actual Temperature (°C)': results['actual'].flatten()[:sample_size],
-                'Predicted Temperature (°C)': results['predictions'].flatten()[:sample_size],
-                'Error (°C)': errors[:sample_size]
-            })
-            st.dataframe(sample_results, width='stretch', hide_index=True)
+            fig_error_hist.add_vline(x=0, line_dash="dash", line_color="red")
+            st.plotly_chart(fig_error_hist, width='stretch')
+        
+        with col2:
+            fig_scatter = px.scatter(
+                x=results['actual'].flatten(),
+                y=results['predictions'].flatten(),
+                title="Actual vs Predicted",
+                labels={'x': 'Actual Temperature (°C)', 'y': 'Predicted Temperature (°C)'},
+                color_discrete_sequence=['#1f77b4'],
+                opacity=0.5
+            )
+            # Add perfect prediction line
+            min_temp = min(results['actual'].min(), results['predictions'].min())
+            max_temp = max(results['actual'].max(), results['predictions'].max())
+            fig_scatter.add_trace(go.Scatter(
+                x=[min_temp, max_temp],
+                y=[min_temp, max_temp],
+                mode='lines',
+                name='Perfect Prediction',
+                line=dict(color='red', dash='dash')
+            ))
+            st.plotly_chart(fig_scatter, width='stretch')
+        
+        # Detailed statistics
+        st.markdown("### Error Statistics")
+        error_stats = {
+            'Metric': ['Mean Error', 'Std Error', 'Min Error', 'Max Error', '25th Percentile', '75th Percentile'],
+            'Value (°C)': [
+                f"{np.mean(errors):.4f}",
+                f"{np.std(errors):.4f}",
+                f"{np.min(errors):.4f}",
+                f"{np.max(errors):.4f}",
+                f"{np.percentile(errors, 25):.4f}",
+                f"{np.percentile(errors, 75):.4f}"
+            ]
+        }
+        st.dataframe(pd.DataFrame(error_stats), width='stretch', hide_index=True)
+        
+        # Sample predictions table
+        st.markdown("### Sample Predictions")
+        sample_size = 20
+        sample_results = pd.DataFrame({
+            'Index': range(sample_size),
+            'Actual Temperature (°C)': results['actual'].flatten()[:sample_size],
+            'Predicted Temperature (°C)': results['predictions'].flatten()[:sample_size],
+            'Error (°C)': errors[:sample_size]
+        })
+        st.dataframe(sample_results, width='stretch', hide_index=True)
     
     # =========================================================================
     # TAB 5: DOCUMENTATION
