@@ -13,7 +13,7 @@ import os
 # Page Configuration
 st.set_page_config(
     page_title="Jena Climate RNN Forecasting",
-    page_icon="ðŸŒ¡ï¸",
+    page_icon="",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -249,7 +249,7 @@ def train_model_with_ui(model, X_train, y_train, X_val, y_val, epochs, learning_
         
         # Show time estimate
         if epoch > 0:  # Only show after first epoch
-            time_text.info(f"â±ï¸ Epoch time: {epoch_time:.1f}s | Estimated remaining: {estimated_remaining:.1f}s ({estimated_remaining/60:.1f} min)")
+            time_text.info(f" Epoch time: {epoch_time:.1f}s | Estimated remaining: {estimated_remaining:.1f}s ({estimated_remaining/60:.1f} min)")
     
     progress_bar.empty()
     status_text.empty()
@@ -355,7 +355,7 @@ def evaluate_model(model, X_test, y_test, scaler, device):
     rmse = np.sqrt(mean_squared_error(y_test_actual, predictions_actual))
     mae = mean_absolute_error(y_test_actual, predictions_actual)
     
-    # Calculate RÂ² score
+    # Calculate R score
     ss_res = np.sum((y_test_actual - predictions_actual) ** 2)
     ss_tot = np.sum((y_test_actual - np.mean(y_test_actual)) ** 2)
     r2 = 1 - (ss_res / ss_tot)
@@ -374,7 +374,7 @@ def evaluate_model(model, X_test, y_test, scaler, device):
 
 def main():
     # Title
-    st.markdown('<h1 class="main-header">ðŸŒ¡ï¸ Jena Climate Temperature Forecasting with RNN</h1>', unsafe_allow_html=True)
+    st.markdown('<h1 class="main-header"> Jena Climate Temperature Forecasting with RNN</h1>', unsafe_allow_html=True)
     st.markdown("""
     This application uses **Recurrent Neural Networks (RNN/LSTM)** to predict future temperature values 
     based on historical weather data from the Jena Climate dataset (2009-2016).
@@ -384,30 +384,30 @@ def main():
     
     ---
     
-    **ðŸš€ Auto-Training Mode:** This app automatically trains the model when loaded and displays the results. 
+    ** Auto-Training Mode:** This app automatically trains the model when loaded and displays the results. 
     Adjust the parameters in the sidebar to see different configurations (requires page refresh).
     """)
     
     # Sidebar - Model Configuration
-    st.sidebar.header("âš™ï¸ Model Configuration")
+    st.sidebar.header(" Model Configuration")
     
-    st.sidebar.markdown("**ðŸ’¡ Tip:** Change parameters and refresh to retrain!")
+    st.sidebar.markdown("** Tip:** Change parameters and refresh to retrain!")
     
     st.sidebar.subheader("Data Parameters")
     
-    st.sidebar.warning("âš ï¸ **Recommended:** Keep sample mode ON for fast cloud deployment")
+    st.sidebar.warning(" **Recommended:** Keep sample mode ON for fast cloud deployment")
     
     # Add data sampling option for faster training
     use_sample = st.sidebar.checkbox(
-        "ðŸš€ Use Sample Data (Faster Training)",
+        " Use Sample Data (Faster Training)",
         value=True,  # Default to True for faster demo
         help="Use only 10% of data for quick testing. Uncheck for full dataset (may be very slow on Streamlit Cloud)."
     )
     
     if use_sample:
-        st.sidebar.success("âœ… Sample mode ON - Training finishes in ~10-30 seconds!")
+        st.sidebar.success(" Sample mode ON - Training finishes in ~10-30 seconds!")
     else:
-        st.sidebar.error("âš ï¸ Full dataset mode - May take 10-30+ minutes on cloud!")
+        st.sidebar.error(" Full dataset mode - May take 10-30+ minutes on cloud!")
     
     sequence_length = st.sidebar.slider(
         "Sequence Length (observations)",
@@ -479,7 +479,7 @@ def main():
     
     # Check if file exists before trying to load
     if not os.path.exists(data_path):
-        st.error(f"âŒ Dataset file not found at: {data_path}")
+        st.error(f" Dataset file not found at: {data_path}")
         st.error("Please ensure 'jena_climate_2009_2016.csv' is in the Project4 directory and committed to git.")
         st.stop()
         return
@@ -502,7 +502,7 @@ def main():
 
         # Safety caps for demo/sample mode to keep training short on CPU
         if use_sample:
-            st.warning(" Sample mode detected ” reducing sequence length and epochs for fast demo runs")
+            st.warning(" Sample mode detected  reducing sequence length and epochs for fast demo runs")
             demo_sequence_length = min(sequence_length, 144)  # very short sequences for demo (1 day = 144 * 10min)
             demo_epochs = min(epochs, 10)  # just 2-3 epochs for ultra-fast feedback
             st.info(f" Demo settings: {demo_epochs} epochs, {demo_sequence_length} sequence length")
@@ -547,15 +547,15 @@ def main():
             device=device
         )
     
-    st.success(f"âœ… Training complete! Total time: {training_results['training_time']:.2f} seconds")
+    st.success(f" Training complete! Total time: {training_results['training_time']:.2f} seconds")
     
     # Main content tabs
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "ðŸ“Š Data Overview",
-        "ðŸ”§ Data Preprocessing",
-        "ðŸ¤– Model Training",
-        "ðŸ“ˆ Results & Evaluation",
-        "ðŸ“š Documentation"
+        " Data Overview",
+        " Data Preprocessing",
+        " Model Training",
+        " Results & Evaluation",
+        " Documentation"
     ])
     
     # =========================================================================
@@ -607,7 +607,7 @@ def main():
         fig.update_layout(
             title="Temperature Time Series (Sampled)",
             xaxis_title="Time Index",
-            yaxis_title="Temperature (Â°C)",
+            yaxis_title="Temperature (C)",
             hovermode='x unified',
             height=400
         )
@@ -621,7 +621,7 @@ def main():
             x='T (degC)',
             nbins=50,
             title="Temperature Distribution",
-            labels={'T (degC)': 'Temperature (Â°C)'},
+            labels={'T (degC)': 'Temperature (C)'},
             color_discrete_sequence=['#1f77b4']
         )
         st.plotly_chart(fig_hist, width='stretch')
@@ -786,21 +786,21 @@ def main():
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            st.metric("RMSE", f"{results['rmse']:.4f}Â°C", help="Root Mean Squared Error")
+            st.metric("RMSE", f"{results['rmse']:.4f}C", help="Root Mean Squared Error")
         with col2:
-            st.metric("MAE", f"{results['mae']:.4f}Â°C", help="Mean Absolute Error")
+            st.metric("MAE", f"{results['mae']:.4f}C", help="Mean Absolute Error")
         with col3:
-            st.metric("RÂ² Score", f"{results['r2']:.4f}", help="Coefficient of Determination")
+            st.metric("R Score", f"{results['r2']:.4f}", help="Coefficient of Determination")
         with col4:
             st.metric("Training Time", f"{training_results['training_time']:.2f}s")
         
         # Interpretation
         if results['r2'] > 0.9:
-            st.success("ðŸŽ‰ Excellent model performance! RÂ² > 0.9 indicates very strong predictive power.")
+            st.success(" Excellent model performance! R > 0.9 indicates very strong predictive power.")
         elif results['r2'] > 0.7:
-            st.info("âœ… Good model performance. RÂ² > 0.7 shows solid predictions.")
+            st.info(" Good model performance. R > 0.7 shows solid predictions.")
         else:
-            st.warning("âš ï¸ Model could be improved. Consider adjusting hyperparameters.")
+            st.warning(" Model could be improved. Consider adjusting hyperparameters.")
         
         st.markdown("---")
         
@@ -830,7 +830,7 @@ def main():
         
         fig_pred.update_layout(
             xaxis_title="Test Sample Index",
-            yaxis_title="Temperature (Â°C)",
+            yaxis_title="Temperature (C)",
             hovermode='x unified',
             height=500,
             legend=dict(x=0.7, y=0.99)
@@ -850,7 +850,7 @@ def main():
                 x=errors,
                 nbins=50,
                 title="Error Distribution",
-                labels={'x': 'Prediction Error (Â°C)'},
+                labels={'x': 'Prediction Error (C)'},
                 color_discrete_sequence=['#9467bd']
             )
             fig_error_hist.add_vline(x=0, line_dash="dash", line_color="red")
@@ -861,7 +861,7 @@ def main():
                 x=results['actual'].flatten(),
                 y=results['predictions'].flatten(),
                 title="Actual vs Predicted",
-                labels={'x': 'Actual Temperature (Â°C)', 'y': 'Predicted Temperature (Â°C)'},
+                labels={'x': 'Actual Temperature (C)', 'y': 'Predicted Temperature (C)'},
                 color_discrete_sequence=['#1f77b4'],
                 opacity=0.5
             )
@@ -881,7 +881,7 @@ def main():
         st.markdown("### Error Statistics")
         error_stats = {
             'Metric': ['Mean Error', 'Std Error', 'Min Error', 'Max Error', '25th Percentile', '75th Percentile'],
-            'Value (Â°C)': [
+            'Value (C)': [
                 f"{np.mean(errors):.4f}",
                 f"{np.std(errors):.4f}",
                 f"{np.min(errors):.4f}",
@@ -897,9 +897,9 @@ def main():
         sample_size = 20
         sample_results = pd.DataFrame({
             'Index': range(sample_size),
-            'Actual Temperature (Â°C)': results['actual'].flatten()[:sample_size],
-            'Predicted Temperature (Â°C)': results['predictions'].flatten()[:sample_size],
-            'Error (Â°C)': errors[:sample_size]
+            'Actual Temperature (C)': results['actual'].flatten()[:sample_size],
+            'Predicted Temperature (C)': results['predictions'].flatten()[:sample_size],
+            'Error (C)': errors[:sample_size]
         })
         st.dataframe(sample_results, width='stretch', hide_index=True)
     
@@ -910,7 +910,7 @@ def main():
         st.markdown('<h2 class="sub-header">Project Documentation</h2>', unsafe_allow_html=True)
         
         st.markdown("""
-        ## ðŸ“– Jena Climate RNN Temperature Forecasting
+        ##  Jena Climate RNN Temperature Forecasting
         
         ### Project Overview
         
@@ -926,7 +926,7 @@ def main():
         **Time Period:** 2009 - 2016  
         **Frequency:** Every 10 minutes  
         **Features:** 14 weather measurements including:
-        - Temperature (Â°C)
+        - Temperature (C)
         - Pressure (mbar)
         - Humidity (%)
         - Wind speed and direction
@@ -954,7 +954,7 @@ def main():
         **Sequence Creation:**
         - Sliding window approach
         - Default: 720 observations (5 days at 10-min intervals)
-        - Input: Past temperatures â†’ Output: Next temperature
+        - Input: Past temperatures  Output: Next temperature
         
         **Train/Test Split:**
         - Training: 80% of data (earlier time periods)
@@ -966,13 +966,13 @@ def main():
         **LSTM Network:**
         ```
         Input Layer (1 feature)
-              â†“
+              
         LSTM Layer 1 (64 units)
-              â†“
+              
         Dropout (0.2)
-              â†“
+              
         LSTM Layer 2 (64 units)
-              â†“
+              
         Fully Connected (1 output)
         ```
         
@@ -1003,16 +1003,16 @@ def main():
         #### 4. Evaluation Metrics
         
         **RMSE (Root Mean Squared Error):**
-        - `âˆš(Î£(y_pred - y_actual)Â² / n)`
-        - In same units as temperature (Â°C)
+        - `((y_pred - y_actual) / n)`
+        - In same units as temperature (C)
         - Lower is better
         
         **MAE (Mean Absolute Error):**
-        - `Î£|y_pred - y_actual| / n`
+        - `|y_pred - y_actual| / n`
         - Average absolute difference
         - More robust to outliers than RMSE
         
-        **RÂ² Score (Coefficient of Determination):**
+        **R Score (Coefficient of Determination):**
         - `1 - (SS_res / SS_tot)`
         - Ranges from 0 to 1 (1 = perfect predictions)
         - Indicates proportion of variance explained
@@ -1050,24 +1050,24 @@ def main():
         ### Key Findings & Insights
         
         **What Works Well:**
-        - âœ… LSTM effectively captures temperature patterns
-        - âœ… 5-day lookback window provides good context
-        - âœ… 2-layer LSTM with 64-128 hidden units optimal
-        - âœ… Min-Max normalization essential for convergence
-        - âœ… Adam optimizer with lr=0.001 performs best
+        -  LSTM effectively captures temperature patterns
+        -  5-day lookback window provides good context
+        -  2-layer LSTM with 64-128 hidden units optimal
+        -  Min-Max normalization essential for convergence
+        -  Adam optimizer with lr=0.001 performs best
         
         **Challenges:**
-        - âš ï¸ Sudden weather changes difficult to predict
-        - âš ï¸ Long-term forecasts (>1 day) less accurate
-        - âš ï¸ Extreme temperatures underrepresented in training
-        - âš ï¸ Model learns general trends but misses rapid fluctuations
+        -  Sudden weather changes difficult to predict
+        -  Long-term forecasts (>1 day) less accurate
+        -  Extreme temperatures underrepresented in training
+        -  Model learns general trends but misses rapid fluctuations
         
         **Potential Improvements:**
-        - ðŸ“ˆ Include additional features (pressure, humidity, wind)
-        - ðŸ“ˆ Use bidirectional LSTM to look both directions
-        - ðŸ“ˆ Implement attention mechanism for important time steps
-        - ðŸ“ˆ Ensemble multiple models for robustness
-        - ðŸ“ˆ Add seasonal/cyclical encoding (time of day, month)
+        -  Include additional features (pressure, humidity, wind)
+        -  Use bidirectional LSTM to look both directions
+        -  Implement attention mechanism for important time steps
+        -  Ensemble multiple models for robustness
+        -  Add seasonal/cyclical encoding (time of day, month)
         
         ---
         
