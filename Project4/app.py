@@ -225,7 +225,7 @@ def main():
     st.sidebar.markdown("---")
     st.sidebar.markdown("### Training Configuration")
     st.sidebar.write("**Data:** 5% sample (21K records)")
-    st.sidebar.write("**Sequence Length:** 144 steps (1 day)")
+    st.sidebar.write("**Sequence Length:** 720 steps (5 days)")
     st.sidebar.write("**Train/Test Split:** 80/20")
     st.sidebar.write("**Epochs:** 10")
     st.sidebar.write("**Learning Rate:** 0.001")
@@ -262,7 +262,7 @@ def main():
         # Prepare data
         st.info("Preparing data...")
         df_sample = df.iloc[::20]  # Use 5% sample for faster training
-        prepared_data = prepare_data(df_sample, sequence_length=144, train_ratio=0.8)
+        prepared_data = prepare_data(df_sample, sequence_length=720, train_ratio=0.8)
         
         prepared_data_info = {
             'train_sequences': len(prepared_data['X_train']),
@@ -415,7 +415,7 @@ def main():
         2. **Data Sampling**: Used 5% sample (every 20th row) - 21K records
         3. **Feature Selection**: Focused on temperature column (`T (degC)`)
         4. **Normalization**: Applied Min-Max scaling to range [0, 1]
-        5. **Sequence Creation**: Used sliding window approach (144 steps = 1 day)
+        5. **Sequence Creation**: Used sliding window approach (720 steps = 5 days)
         6. **Train/Test Split**: 80% training, 20% testing
         """)
         
@@ -440,7 +440,7 @@ def main():
         st.markdown(f"""
         - **Input**: Sequence of {prepared_data_info['sequence_length']} past temperature observations
         - **Output**: Next temperature value (single prediction)
-        - **Example**: Use last 144 observations (1 day at 10-min intervals) to predict next temperature
+        - **Example**: Use last 720 observations (5 days at 10-min intervals) to predict next temperature
         """)
     
     # =========================================================================
@@ -663,7 +663,7 @@ def main():
         ### 1. Data Preprocessing
         - ✅ **Data Loading**: Loaded Jena Climate CSV with pandas
         - ✅ **Normalization**: Applied Min-Max scaling to temperature column
-        - ✅ **Sequence Creation**: Used sliding window approach (144 observations = 1 day)
+        - ✅ **Sequence Creation**: Used sliding window approach (720 observations = 5 days)
         
         ### 2. Model Adaptation
         - ✅ **Input/Output Adjustment**: RNN adapted for temperature forecasting
