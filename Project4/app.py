@@ -330,7 +330,7 @@ def main():
     st.info("Loading pre-trained model results...")
     
     # Load pre-trained results
-    results_path = os.path.join(os.path(__file__), 'pretrained_results.pkl')
+    results_path = os.path.join(os.path.dirname(__file__), 'pretrained_results.pkl')
     
     if not os.path.exists(results_path):
         st.error(f"Pre-trained results file not found at: {results_path}")
