@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import datetime
 import os
+import pickle
 
 # Page Configuration
 st.set_page_config(
@@ -260,113 +261,7 @@ def train_model_with_ui(model, X_train, y_train, X_val, y_val, epochs, learning_
         'val_losses': val_losses
     }
 
-@st.cache_data
-def train_model_cached(_X_train, _y_train, _X_val, _y_val, hidden_size, num_layers, dropout, 
-                       epochs, learning_rate, batch_size, device_str):
-    """
-    Cached training function that runs automatically once with given parameters.
-    Returns model state dict and training history.
-    """
-    import time
-    
-    # Initialize model
-    model = TemperatureRNN(
-        input_size=1,
-        hidden_size=hidden_size,
-        num_layers=num_layers,
-        output_size=1,
-        dropout=dropout
-    )
-    
-    device = torch.device(device_str)
-    criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    
-    model.to(device)
-    
-    train_losses = []
-    val_losses = []
-    
-    start_time = time.time()
-    
-    # Training loop (no UI updates for cached version)
-    for epoch in range(epochs):
-        model.train()
-        epoch_train_loss = 0
-        num_batches = 0
-        
-        # Mini-batch training
-        for i in range(0, len(_X_train), batch_size):
-            batch_X = _X_train[i:i + batch_size].to(device)
-            batch_y = _y_train[i:i + batch_size].to(device)
-            
-            # Forward pass
-            outputs = model(batch_X)
-            loss = criterion(outputs, batch_y)
-            
-            # Backward pass and optimization
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            
-            epoch_train_loss += loss.item()
-            num_batches += 1
-        
-        avg_train_loss = epoch_train_loss / num_batches
-        train_losses.append(avg_train_loss)
-        
-        # Validation
-        model.eval()
-        with torch.no_grad():
-            val_outputs = model(_X_val.to(device))
-            val_loss = criterion(val_outputs, _y_val.to(device))
-            val_losses.append(val_loss.item())
-    
-    training_time = time.time() - start_time
-    
-    return {
-        'model_state_dict': model.state_dict(),
-        'train_losses': train_losses,
-        'val_losses': val_losses,
-        'training_time': training_time,
-        'num_parameters': sum(p.numel() for p in model.parameters())
-    }
-
-# =============================================================================
-# EVALUATION FUNCTION
-# =============================================================================
-
-def evaluate_model(model, X_test, y_test, scaler, device):
-    """
-    Evaluate the model on test set.
-    
-    Returns:
-        Dictionary with predictions and metrics
-    """
-    model.eval()
-    with torch.no_grad():
-        predictions = model(X_test.to(device)).cpu().numpy()
-    
-    # Inverse transform to get actual temperature values
-    y_test_actual = scaler.inverse_transform(y_test.numpy())
-    predictions_actual = scaler.inverse_transform(predictions)
-    
-    # Calculate metrics
-    rmse = np.sqrt(mean_squared_error(y_test_actual, predictions_actual))
-    mae = mean_absolute_error(y_test_actual, predictions_actual)
-    
-    # Calculate R score
-    ss_res = np.sum((y_test_actual - predictions_actual) ** 2)
-    ss_tot = np.sum((y_test_actual - np.mean(y_test_actual)) ** 2)
-    r2 = 1 - (ss_res / ss_tot)
-    
-    return {
-        'predictions': predictions_actual,
-        'actual': y_test_actual,
-        'rmse': rmse,
-        'mae': mae,
-        'r2': r2
-    }
+# Note: train_model_cached function removed - we now load pre-trained results instead
 
 # =============================================================================
 # MAIN APP
@@ -388,91 +283,29 @@ def main():
     Adjust the parameters in the sidebar to see different configurations (requires page refresh).
     """)
     
-    # Sidebar - Model Configuration
-    st.sidebar.header(" Model Configuration")
+    # Sidebar - Information
+    st.sidebar.header(" Pre-Trained Models")
     
-    st.sidebar.markdown("** Tip:** Change parameters and refresh to retrain!")
+    st.sidebar.info("""
+    ** Instant Results!**
     
-    st.sidebar.subheader("Data Parameters")
+    This app loads pre-trained model results for instant viewing. 
+    No waiting for training!
     
-    st.sidebar.warning(" **Recommended:** Keep sample mode ON for fast cloud deployment")
+    Three LSTM configurations were pre-trained:
+    - Simple LSTM (32 units, 1 layer)
+    - Medium LSTM (64 units, 2 layers)
+    - Deep LSTM (128 units, 3 layers)
+    """)
     
-    # Add data sampling option for faster training
-    use_sample = st.sidebar.checkbox(
-        " Use Sample Data (Faster Training)",
-        value=True,  # Default to True for faster demo
-        help="Use only 10% of data for quick testing. Uncheck for full dataset (may be very slow on Streamlit Cloud)."
-    )
-    
-    if use_sample:
-        st.sidebar.success(" Sample mode ON - Training finishes in ~10-30 seconds!")
-    else:
-        st.sidebar.error(" Full dataset mode - May take 10-30+ minutes on cloud!")
-    
-    sequence_length = st.sidebar.slider(
-        "Sequence Length (observations)",
-        min_value=144,
-        max_value=1440,
-        value=720,
-        step=72,
-        help="Number of past observations to use. 720 = 5 days (at 10-min intervals)"
-    )
-    
-    train_ratio = st.sidebar.slider(
-        "Training Data Ratio",
-        min_value=0.6,
-        max_value=0.9,
-        value=0.8,
-        step=0.05
-    )
-    
-    st.sidebar.subheader("Model Hyperparameters")
-    hidden_size = st.sidebar.select_slider(
-        "Hidden Units",
-        options=[32, 64, 128, 256],
-        value=64
-    )
-    
-    num_layers = st.sidebar.slider(
-        "Number of LSTM Layers",
-        min_value=1,
-        max_value=4,
-        value=2
-    )
-    
-    dropout = st.sidebar.slider(
-        "Dropout Rate",
-        min_value=0.0,
-        max_value=0.5,
-        value=0.2,
-        step=0.1
-    )
-    
-    st.sidebar.subheader("Training Parameters")
-    learning_rate = st.sidebar.select_slider(
-        "Learning Rate",
-        options=[0.0001, 0.0005, 0.001, 0.005, 0.01],
-        value=0.001,
-        format_func=lambda x: f"{x:.4f}"
-    )
-    
-    epochs = st.sidebar.slider(
-        "Training Epochs",
-        min_value=10,
-        max_value=200,
-        value=50,
-        step=10
-    )
-    
-    batch_size = st.sidebar.select_slider(
-        "Batch Size",
-        options=[32, 64, 128, 256],
-        value=64
-    )
-    
-    # Device selection
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    st.sidebar.info(f"**Device:** {device}")
+    st.sidebar.markdown("---")
+    st.sidebar.markdown("### Training Configuration")
+    st.sidebar.write("**Data:** 5% sample (21K records)")
+    st.sidebar.write("**Sequence Length:** 144 steps")
+    st.sidebar.write("**Train/Test Split:** 80/20")
+    st.sidebar.write("**Epochs:** 10")
+    st.sidebar.write("**Learning Rate:** 0.001")
+    st.sidebar.write("**Batch Size:** 64")
     
     # Load data
     data_path = os.path.join(os.path.dirname(__file__), 'jena_climate_2009_2016.csv')
@@ -491,105 +324,27 @@ def main():
         return
     
     # =========================================================================
-    # AUTOMATIC TRAINING - Train 3 different model configurations
+    # LOAD PRE-TRAINED RESULTS
     # =========================================================================
     
-    st.info("Training 3 different RNN configurations automatically for comparison...")
+    st.info("Loading pre-trained model results...")
     
-    # Always use sample data for fast demo
-    df_to_use = df.iloc[::10]
-    demo_sequence_length = 144  # 1 day of observations
-    demo_epochs = 10
+    # Load pre-trained results
+    results_path = os.path.join(os.path(__file__), 'pretrained_results.pkl')
     
-    with st.spinner("Preparing data..."):
-        prepared_data = prepare_data(df_to_use, sequence_length=demo_sequence_length, train_ratio=train_ratio)
+    if not os.path.exists(results_path):
+        st.error(f"Pre-trained results file not found at: {results_path}")
+        st.error("Please run 'train_models.py' first to generate the pre-trained results.")
+        st.stop()
+        return
     
-    st.success(f"Data prepared: {len(prepared_data['X_train']):,} training sequences, {len(prepared_data['X_test']):,} test sequences")
+    with open(results_path, 'rb') as f:
+        pretrained_data = pickle.load(f)
     
-    # Define 3 model configurations to compare
-    model_configs = [
-        {
-            'name': 'Simple LSTM',
-            'hidden_size': 32,
-            'num_layers': 1,
-            'dropout': 0.0,
-            'color': '#1f77b4',
-            'description': 'Basic single-layer LSTM'
-        },
-        {
-            'name': 'Medium LSTM',
-            'hidden_size': 64,
-            'num_layers': 2,
-            'dropout': 0.2,
-            'color': '#ff7f0e',
-            'description': '2-layer LSTM with dropout'
-        },
-        {
-            'name': 'Deep LSTM',
-            'hidden_size': 128,
-            'num_layers': 3,
-            'dropout': 0.3,
-            'color': '#2ca02c',
-            'description': '3-layer deep LSTM network'
-        }
-    ]
+    all_results = pretrained_data['all_results']
+    prepared_data_info = pretrained_data['prepared_data_info']
     
-    # Train all 3 models
-    all_results = []
-    progress_bar = st.progress(0)
-    status_text = st.empty()
-    
-    for idx, config in enumerate(model_configs):
-        status_text.text(f"Training {config['name']} ({idx+1}/3)...")
-        
-        # Train model (cached for speed)
-        training_results = train_model_cached(
-            prepared_data['X_train'],
-            prepared_data['y_train'],
-            prepared_data['X_test'],
-            prepared_data['y_test'],
-            hidden_size=config['hidden_size'],
-            num_layers=config['num_layers'],
-            dropout=config['dropout'],
-            epochs=demo_epochs,
-            learning_rate=learning_rate,
-            batch_size=batch_size,
-            device_str=str(device)
-        )
-        
-        # Reconstruct model
-        model = TemperatureRNN(
-            input_size=1,
-            hidden_size=config['hidden_size'],
-            num_layers=config['num_layers'],
-            output_size=1,
-            dropout=config['dropout']
-        )
-        model.load_state_dict(training_results['model_state_dict'])
-        model.to(device)
-        
-        # Evaluate
-        eval_results = evaluate_model(
-            model=model,
-            X_test=prepared_data['X_test'],
-            y_test=prepared_data['y_test'],
-            scaler=prepared_data['scaler'],
-            device=device
-        )
-        
-        all_results.append({
-            'config': config,
-            'training': training_results,
-            'evaluation': eval_results,
-            'model': model
-        })
-        
-        progress_bar.progress((idx + 1) / len(model_configs))
-    
-    progress_bar.empty()
-    status_text.empty()
-    
-    st.success(f"All 3 models trained successfully! Total time: {sum(r['training']['training_time'] for r in all_results):.2f} seconds")
+    st.success(f"Loaded {len(all_results)} pre-trained models! Results generated on: {pretrained_data['timestamp'][:10]}")
     
     # Main content tabs
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
@@ -678,20 +433,20 @@ def main():
         ### Preprocessing Steps Applied:
         
         1. **Data Loading**: Loaded CSV file with pandas
-        2. **Data Sampling**: """ + ("Used 10% sample (every 10th row)" if use_sample else "Used full dataset") + """
+        2. **Data Sampling**: Used 5% sample (every 20th row) - 21K records
         3. **Feature Selection**: Focused on temperature column (`T (degC)`)
         4. **Normalization**: Applied Min-Max scaling to range [0, 1]
-        5. **Sequence Creation**: Used sliding window approach (""" + str(sequence_length) + """ steps)
-        6. **Train/Test Split**: """ + f"{int(train_ratio*100)}% training, {int((1-train_ratio)*100)}% testing" + """
+        5. **Sequence Creation**: Used sliding window approach (144 steps)
+        6. **Train/Test Split**: 80% training, 20% testing
         """)
         
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Training Sequences", f"{len(prepared_data['X_train']):,}")
+            st.metric("Training Sequences", f"{prepared_data_info['train_sequences']:,}")
         with col2:
-            st.metric("Test Sequences", f"{len(prepared_data['X_test']):,}")
+            st.metric("Test Sequences", f"{prepared_data_info['test_sequences']:,}")
         with col3:
-            st.metric("Sequence Length", sequence_length)
+            st.metric("Sequence Length", prepared_data_info['sequence_length'])
         
         st.markdown("### Normalization Example")
         st.info(f"""
@@ -702,21 +457,15 @@ def main():
         This transforms temperature values to the range [0, 1], helping the neural network learn more efficiently.
         """)
         
-        # Show example sequences
-        st.markdown("### Sample Input Sequence")
-        st.write("Example of how data is structured for the RNN:")
-        
-        example_seq = prepared_data['X_train'][0].numpy().flatten()[:20]
-        example_df = pd.DataFrame({
-            'Time Step': range(1, len(example_seq) + 1),
-            'Normalized Temperature': example_seq
-        })
-        st.dataframe(example_df, width='stretch')
+        # Show explanation without actual data
+        st.markdown("### Input Sequence Structure")
+        st.write("How data is structured for the RNN:")
         
         st.markdown(f"""
-        - **Input**: Sequence of {sequence_length} past temperature observations
+        - **Input**: Sequence of {prepared_data_info['sequence_length']} past temperature observations
         - **Output**: Next temperature value (single prediction)
-        - **Shape**: `(batch_size, {sequence_length}, 1)`
+        - **Shape**: `(batch_size, {prepared_data_info['sequence_length']}, 1)`
+        - **Example**: Use last 144 observations (1 day at 10-min intervals) to predict next temperature
         """)
     
     # =========================================================================
@@ -817,9 +566,13 @@ def main():
         
         # Get selected model results
         selected_result = next(r for r in all_results if r['config']['name'] == selected_model)
-        results = selected_result['evaluation']
+        results = selected_result['evaluation'].copy()
         config = selected_result['config']
         training = selected_result['training']
+        
+        # Convert lists back to numpy arrays for visualization
+        results['actual'] = np.array(results['actual'])
+        results['predictions'] = np.array(results['predictions'])
         
         # Display metrics for selected model
         st.markdown(f"### {selected_model} Performance")
